@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>picker</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+    <div class="scroller-component" data-role="component">
+        <div class="scroller-mask" data-role="mask"></div>
+        <div class="scroller-indicator" data-role="indicator"></div>
+        <div class="scroller-content" data-role="content">
+            <div class="scroller-item" data-value='1'>1</div>
+            <div class="scroller-item" data-value="2">2</div>
+            <div class="scroller-item" data-value="3">3</div>
+            <div class="scroller-item" data-value="4">4</div>
+            <div class="scroller-item" data-value="5">5</div>
+            <div class="scroller-item" data-value="6">6</div>
+            <div class="scroller-item" data-value="7">7</div>
+            <div class="scroller-item" data-value="8">8</div>
+            <div class="scroller-item" data-value="9">9</div>
+            <div class="scroller-item" data-value="10">10</div>
+            <div class="scroller-item" data-value="11">11</div>
+            <div class="scroller-item" data-value="12">12</div>
+            <div class="scroller-item" data-value="13">13</div>
+            <div class="scroller-item" data-value="14">14</div>
+            <div class="scroller-item" data-value="15">15</div>
+            <div class="scroller-item" data-value="16">16</div>
+            <div class="scroller-item" data-value="17">17</div>
+            <div class="scroller-item" data-value="18">18</div>
+            <div class="scroller-item" data-value="19">19</div>
+            <div class="scroller-item" data-value="20">20</div>
+        </div>
+    </div>
+    <script src="./animate.js"></script>
+    <script>
+        let component = document.querySelector('[data-role=component]') // 插件容器
+        let content = component.querySelector('[data-role=content]') // 内容容器
+        let indicator = component.querySelector('[data-role=indicator]') // 正确位置实线
+
+        let __startTouchTop = 0
+        let __scrollTop = 0
+        let __maxScrollTop = component.clientHeight / 2 // 滚动最大值
+        let __minScrollTop = - (content.offsetHeight - __maxScrollTop) // 滚动最小值
+        let __isAnimating = false // 是否开启动画
+
+        let __lastTouchMove = 0 // 最后滚动时间记录
+        let __positions = [] // 记录位置和时间
+
+        let __deceleratingMove = 0 // 减速运动速度
+        let __isDecelerating = false // 是否开启减速状态
+
+        let __itemHeight = parseFloat(window.getComputedStyle(indicator).height)
+
+        // 开始快后来慢的渐变曲线
+        let easeOutCubic = (pos) => {
+            return (Math.pow((pos - 1), 3) + 1)
+        }
+        // 以满足开始和结束的动画
+        let easeInOutCubic = (pos) => {
+            if ((pos /= 0.5) < 1) {
+                return 0.5 * Math.pow(pos, 3)
+            }
+            return 0.5 * (Math.pow((pos - 2), 3) + 2)
+        }
+        let __callback = (top) => {
+            const distance = top
+            content.style.transform = 'translate3d(0, ' + distance + 'px, 0)'
+        }
+        let __publish = (top, animationDuration) => {
+            if (animationDuration) {
+                let oldTop = __scrollTop
+                let diffTop = top - oldTop
+                let wasAnimating = __isAnimating
+
+                let step = function (percent) {
+                    __scrollTop = oldTop + (diffTop * percent)
+                    __callback(__scrollTop)
+                }
+                let verify = function (id) {
+                    return __isAnimating === id
+                }
+                let completed = function (renderedFramesPerSecond, animationId, wasFinished) {
+                    if (animationId === __isAnimating) {
+                        __isAnimating = false
+                    }
+                }
+                __isAnimating = Animate.start(step, verify, completed, animationDuration, wasAnimating ? easeOutCubic : easeInOutCubic)
+            } else {
+                __scrollTop = top
+                __callback(top)
+            }
+        }
+        // 滚动到正确位置的方法
+        let __scrollTo = (top) => {
+            top = Math.round((top / __itemHeight).toFixed(5)) * __itemHeight
+            let newTop = Math.max(Math.min(__maxScrollTop, top), __minScrollTop)
+            if (top !== newTop) {
+                if (newTop >= __maxScrollTop) {
+                    top = newTop - __itemHeight / 2
+                } else {
+                    top = newTop + __itemHeight / 2
+                }
+            }
+            __publish(top, 250)
+        }
+        // 开始减速动画
+        let __startDeceleration = () => {
+                let step = () => {
+                    let scrollTop = __scrollTop + __deceleratingMove
+                    let scrollTopFixed = Math.max(Math.min(__maxScrollTop, scrollTop), __minScrollTop) // 不小于最小值，不大于最大值
+                    if (scrollTopFixed !== scrollTop) {
+                        scrollTop = scrollTopFixed
+                        __deceleratingMove = 0
+                    }
+                    if (Math.abs(__deceleratingMove) <= 1) {
+                        if (Math.abs(scrollTop % __itemHeight) < 1) {
+                            __deceleratingMove = 0
+                        }
+                    } else {
+                        __deceleratingMove *= 0.95
+                    }
+                    __publish(scrollTop)
+                }
+                let minVelocityToKeepDecelerating = 0.5
+                let verify = () => {
+                    // 保持减速运行需要多少速度
+                    let shouldContinue = Math.abs(__deceleratingMove) >= minVelocityToKeepDecelerating
+                    return shouldContinue
+                }
+                let completed = function (renderedFramesPerSecond, animationId, wasFinished) {
+                    __isDecelerating = false
+                    if (__scrollTop <= __minScrollTop || __scrollTop >= __maxScrollTop) {
+                        __scrollTo(__scrollTop)
+                        return
+                    }
+                }
+                __isDecelerating = Animate.start(step, verify, completed)
+            }
+        let touchStartHandler = (e) => {
+            e.preventDefault()
+            const target = e.touches ? e.touches[0] : e
+            __startTouchTop = target.pageY
+        }
+        let touchMoveHandler = (e) => {
+            const target = e.touches ? e.touches[0] : e
+            let currentTouchTop = target.pageY
+            let moveY = currentTouchTop - __startTouchTop
+            let scrollTop = __scrollTop
+            scrollTop = scrollTop + moveY
+            if (scrollTop > __maxScrollTop || scrollTop < __minScrollTop) {
+                if (scrollTop > __maxScrollTop) {
+                    scrollTop = __maxScrollTop
+                } else {
+                    scrollTop = __minScrollTop
+                }
+            }
+            if (__positions.length > 40) {
+                __positions.splice(0, 20)
+            }
+            __positions.push(scrollTop, e.timeStamp)
+
+            __publish(scrollTop)
+
+            __startTouchTop = currentTouchTop
+            __lastTouchMove = e.timeStamp
+        }
+        let touchEndHandler = (e) => {
+            if (e.timeStamp - __lastTouchMove < 100) { // 如果抬起时间和最后移动时间小于 100 证明快速滚动过
+                let positions = __positions
+                let endPos = positions.length - 1
+                let startPos = endPos
+                // 由于保存的时候位置跟时间都保存了， 所以 i -= 2
+                // positions[i] > (self.__lastTouchMove - 100) 判断是从什么时候开始的快速滑动
+                for (let i = endPos; i > 0 && positions[i] > (__lastTouchMove - 100); i -= 2) {
+                    startPos = i
+                }
+                if (startPos !== endPos) {
+                    // 计算这两点之间的相对运动
+                    let timeOffset = positions[endPos] - positions[startPos] // 快速开始时间 - 结束滚动时间
+                    let movedTop = __scrollTop - positions[startPos - 1] // 最终距离 - 快速开始距离
+                    // 基于50ms计算每个渲染步骤的移动
+                    __deceleratingMove = movedTop / timeOffset * (1000 / 60) // 移动距离是用分钟来计算的
+
+                    let minVelocityToStartDeceleration = 4 // 开始减速的最小速度 
+                    // 只有速度大于最小加速速度时才会出现下面的动画
+                    if (Math.abs(__deceleratingMove) > minVelocityToStartDeceleration) {
+                        __startDeceleration()
+                    }
+                }
+            }
+            if (!__isDecelerating) {
+                __scrollTo(__scrollTop)
+            }
+
+            __positions.length = 0
+        }
+
+        component.addEventListener('touchstart', touchStartHandler)
+
+        component.addEventListener('touchmove', touchMoveHandler)
+
+        component.addEventListener('touchend', touchEndHandler)
+    </script>
+</body>
+
+</html>
